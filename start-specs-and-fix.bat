@@ -14,4 +14,3 @@ if %errorLevel% == 0 (
 :RunAdmin
 pushd "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "specs-and-fix.ps1"
-pause

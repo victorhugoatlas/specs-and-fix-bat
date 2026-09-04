@@ -1,11 +1,11 @@
 $ErrorActionPreference = "SilentlyContinue"
 
 function Get-SpecsEye {
-    $os = Get-WmiObject Win32_OperatingSystem
-    $cpu = Get-WmiObject Win32_Processor
-    $board = Get-WmiObject Win32_BaseBoard
-    $chipset = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Name -match "Chipset|LPC Controller" } | Select-Object -First 1
-    $gpu = Get-WmiObject Win32_VideoController | Select-Object -ExpandProperty Name
+    $os = Get-CimInstance Win32_OperatingSystem
+    $cpu = Get-CimInstance Win32_Processor
+    $board = Get-CimInstance Win32_BaseBoard
+    $chipset = Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "Chipset|LPC Controller" } | Select-Object -First 1
+    $gpu = Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name
     
     $physicalDisk = Get-PhysicalDisk | Where-Object { $_.DeviceID -eq "0" }
     $diskType = $physicalDisk.BusType 
@@ -20,11 +20,11 @@ function Get-SpecsEye {
         } else { $health = $physicalDisk.HealthStatus }
     } catch { $health = "N/A" }
 
-    $ramSlots = Get-WmiObject Win32_PhysicalMemory
+    $ramSlots = Get-CimInstance Win32_PhysicalMemory
     $ramTotal = [math]::Round(($ramSlots | Measure-Object Capacity -Sum).Sum / 1GB)
-    $ramDetails = ($ramSlots | ForEach-Object { "1 x $($_.Capacity / 1GB)GB $($_.Speed)MHz" }) -join " + "
+    $ramDetails = ($ramSlots | ForEach-Object { "1 x $([math]::Round($_.Capacity / 1GB))GB $($_.Speed)MHz" }) -join " + "
     
-    $chassis = Get-WmiObject Win32_SystemEnclosure
+    $chassis = Get-CimInstance Win32_SystemEnclosure
     $type = if ($chassis.ChassisTypes -contains 9 -or $chassis.ChassisTypes -contains 10) { "NOTEBOOK" } else { "DESKTOP" }
 
     return [PSCustomObject]@{
@@ -44,7 +44,6 @@ function Invoke-Limpeza {
     )
     foreach ($path in $paths) {
         Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "[OK] Limpeza em: $path" -ForegroundColor Gray
     }
     Clear-RecycleBin -Force -ErrorAction SilentlyContinue
     Write-Host "[+] Limpeza concluída com sucesso!" -ForegroundColor Green
@@ -54,43 +53,60 @@ function Invoke-Reparo {
     Write-Host "`n[>>>] MODULO 2: REPARO DO SISTEMA" -ForegroundColor Yellow
     DISM /Online /Cleanup-Image /RestoreHealth
     sfc /scannow
-    echo Y | chkdsk C: /f /r
     Write-Host "[+] Rotinas de reparo finalizadas!" -ForegroundColor Green
 }
 
-# Execução Principal
 $specs = Get-SpecsEye
-Clear-Host
 $report = @"
 ==========================================================
-HOSTNAME                 | $($env:COMPUTERNAME)
-SISTEMA OPERACIONAL      | $($specs.OS)
-PROCESSADOR              | $($specs.CPU)
-PLACA-MAE / CHIPSET      | $($specs.Board) / $($specs.Chipset)
-RAM TOTAL                | $($specs.RAM)GB ($($specs.RAMDet))
-DISCO E SAUDE            | $($specs.Disk) - SAUDE: $($specs.Health)
-PLACA DE VIDEO           | $($specs.GPU)
-TIPO                     | $($specs.Type)
-==========================================================
-        MENU DE MANUTENCAO - BY VICTOR HUGO
-==========================================================
-[1] Limpeza de Temporarios
-[2] Reparo do Sistema
-[3] Executar Tudo
-[0] Sair
+HOSTNAME               | $($env:COMPUTERNAME)
+SISTEMA OPERACIONAL    | $($specs.OS)
+PROCESSADOR            | $($specs.CPU)
+PLACA-MAE / CHIPSET    | $($specs.Board) / $($specs.Chipset)
+RAM TOTAL              | $($specs.RAM)GB ($($specs.RAMDet))
+DISCO E SAUDE          | $($specs.Disk) - SAUDE: $($specs.Health)
+PLACA DE VIDEO         | $($specs.GPU)
+TIPO                   | $($specs.Type)
 ==========================================================
 "@
-Write-Host $report -ForegroundColor Cyan
-
-$opt = Read-Host "Digite a opcao"
-
-switch ($opt) {
-    "1" { Invoke-Limpeza }
-    "2" { Invoke-Reparo }
-    "3" { Invoke-Limpeza; Invoke-Reparo }
-    "0" { exit }
-}
 
 $filename = "SPECS_AND_FIX_$($env:COMPUTERNAME).txt"
 $report | Out-File -FilePath "$PSScriptRoot\$filename" -Encoding utf8
-Write-Host "`n[+] Relatorio salvo em: $filename" -ForegroundColor Magenta
+
+do {
+    Clear-Host
+    Write-Host $report -ForegroundColor Cyan
+    Write-Host "        MENU DE MANUTENCAO - BY VICTOR HUGO" -ForegroundColor Yellow
+    Write-Host "=========================================================="
+    Write-Host "[1] Limpeza de Temporarios"
+    Write-Host "[2] Reparo do Sistema (DISM + SFC)"
+    Write-Host "[3] Executar Tudo (Limpeza + Reparo)"
+    Write-Host "[0] Sair"
+    Write-Host "=========================================================="
+    
+    $opt = Read-Host "Digite a opcao"
+
+    switch ($opt) {
+        "1" { 
+            Invoke-Limpeza 
+            Pause 
+        }
+        "2" { 
+            Invoke-Reparo 
+            Pause 
+        }
+        "3" { 
+            Invoke-Limpeza 
+            Invoke-Reparo 
+            Pause 
+        }
+        "0" { 
+            Write-Host "Saindo... Relatório salvo em: $filename" -ForegroundColor Magenta
+            exit 
+        }
+        default { 
+            Write-Host "Opção inválida!" -ForegroundColor Red
+            Start-Sleep -Seconds 1 
+        }
+    }
+} while ($true)
